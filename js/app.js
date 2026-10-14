@@ -1,5 +1,6 @@
 import { $, $$, fail } from './util.js';
 import { setLang, initialLang, applyI18n } from './i18n.js';
+import { initFonts } from './fonts.js';
 
 const TABS = {
   read: () => import('./read.js'),
@@ -43,6 +44,7 @@ window.addEventListener('hashchange', () => show(location.hash.slice(1)));
 $('#lang').addEventListener('change', e => setLang(e.target.value));
 
 initTheme();
+initFonts();
 const l = initialLang();
 $('#lang').value = l;
 setLang(l);

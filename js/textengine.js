@@ -116,8 +116,6 @@ export function visualLine(text, forced) {
 }
 
 // ---------- font selection ----------
-export const FONT_FILES = { latin: 'latin.ttf', 'latin-ext': 'latin-ext.ttf', cyrillic: 'cyrillic.ttf', greek: 'greek.ttf', arabic: 'arabic.ttf' };
-
 export function fontKeyFor(ch) {
   const c = ch.codePointAt(0);
   if (isArabicCp(c)) return 'arabic';
@@ -127,65 +125,85 @@ export function fontKeyFor(ch) {
   return 'latin';
 }
 
-/** Split a visual string into [{font, text}] runs. Neutral chars stay in the previous run's font if it has them. */
-export function fontSegments(visual) {
+/** A font choice: built-in family ('sans'|'serif'|'mono'|'hand'), bold flag, optional custom font {id, bytes, cps, whole}. */
+export const DEFAULT_FONT = { family: 'sans', bold: false, custom: null };
+
+/** Split a visual string into [{key, text}] runs. `key` is a script key, or 'custom' when the custom font has the glyph. */
+export function fontSegments(visual, spec = DEFAULT_FONT) {
   const segs = [];
   for (const ch of visual) {
-    let k = fontKeyFor(ch);
-    // Arabic font lacks ASCII/space; use latin for those (fontKeyFor already does)
+    const cp = ch.codePointAt(0);
+    const key = spec.custom && spec.custom.cps.has(cp) ? 'custom' : fontKeyFor(ch);
     const last = segs[segs.length - 1];
-    if (last && last.font === k) last.text += ch; else segs.push({ font: k, text: ch });
+    if (last && last.key === key) last.text += ch; else segs.push({ key, text: ch });
   }
   return segs;
 }
 
+// fontkit reverses any all-RTL-script string internally; pre-reverse Arabic runs so the final order is what we computed.
+// (custom fonts: only when the run really is Arabic script)
+const forFontkit = (key, text) => (key === 'arabic' || (key === 'custom' && [...text].every(c => isArabicCp(c.codePointAt(0)))) ? [...text].reverse().join('') : text);
 // We shape/reorder ourselves, so switch off fontkit's own GSUB/GPOS shaping.
 const NO_FEATURES = Object.fromEntries(['ccmp', 'locl', 'rlig', 'liga', 'clig', 'calt', 'init', 'medi', 'fina', 'isol', 'mark', 'mkmk', 'curs', 'kern', 'rclt', 'dlig'].map(k => [k, false]));
-// fontkit reverses any all-RTL-script string internally; pre-reverse Arabic runs so the final order is what we computed.
-const forFontkit = (font, text) => (font === 'arabic' ? [...text].reverse().join('') : text);
+
+let manifestP;
+const loadManifest = base => (manifestP ||= fetch(base + 'manifest.json').then(r => r.json()));
 
 /** Load (and cache per PDFDocument) the embedded fonts. */
-export async function makeFontSet(pdfDoc, PDFLib, fontkit, base = './vendor/fonts/') {
+export async function makeFontSet(pdfDoc, PDFLib, fontkit, base = new URL('../vendor/fonts/', import.meta.url).href) {
   pdfDoc.registerFontkit(fontkit);
-  const cache = {}; const bytes = {};
-  const get = async key => {
-    if (cache[key]) return cache[key];
-    bytes[key] ||= fetch(base + FONT_FILES[key]).then(r => r.arrayBuffer());
-    cache[key] = await pdfDoc.embedFont(await bytes[key], { subset: false, features: NO_FEATURES });
-    return cache[key];
+  const manifest = await loadManifest(base);
+  const cache = {}, bytes = {};
+  const stemFor = (family, script, bold) => {
+    const pick = f => manifest.files[f]?.[script];
+    const m = pick(family) || pick('sans');
+    return m[bold && m['700'] ? '700' : '400'];
   };
-  const widthOf = async (visual, size) => {
+  const get = async (key, spec = DEFAULT_FONT) => {
+    if (key === 'custom') {
+      const ck = 'c:' + spec.custom.id;
+      if (!cache[ck]) cache[ck] = await pdfDoc.embedFont(spec.custom.bytes, { subset: !spec.custom.whole, features: NO_FEATURES });
+      return cache[ck];
+    }
+    const stem = stemFor(spec.family, key, spec.bold);
+    if (!cache[stem]) {
+      bytes[stem] ||= fetch(base + stem + '.ttf').then(r => r.arrayBuffer());
+      cache[stem] = await pdfDoc.embedFont(await bytes[stem], { subset: false, features: NO_FEATURES });
+    }
+    return cache[stem];
+  };
+  const widthOf = async (visual, size, spec = DEFAULT_FONT) => {
     let w = 0;
-    for (const s of fontSegments(visual)) w += (await get(s.font)).widthOfTextAtSize(forFontkit(s.font, s.text), size);
+    for (const s of fontSegments(visual, spec)) w += (await get(s.key, spec)).widthOfTextAtSize(forFontkit(s.key, s.text), size);
     return w;
   };
   /** Draw a single logical line from (x, y=baseline), optionally rotated by `angle` degrees about the start. Returns width. */
-  const drawLine = async (page, text, { x, y, size, color, opacity = 1, angle = 0, forceDir }) => {
+  const drawLine = async (page, text, { x, y, size, color, opacity = 1, angle = 0, forceDir, font = DEFAULT_FONT }) => {
     const { text: vis } = visualLine(text, forceDir);
     const a = (angle * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
     let off = 0;
-    for (const s of fontSegments(vis)) {
-      const f = await get(s.font);
+    for (const s of fontSegments(vis, font)) {
+      const f = await get(s.key, font);
       const opts = { x: x + cos * off, y: y + sin * off, size, font: f, color, opacity };
       if (angle) opts.rotate = PDFLib.degrees(angle);
-      const t = forFontkit(s.font, s.text);
+      const t = forFontkit(s.key, s.text);
       page.drawText(t, opts);
       off += f.widthOfTextAtSize(t, size);
     }
     return off;
   };
-  const measureLine = async (text, size, forceDir) => widthOf(visualLine(text, forceDir).text, size);
+  const measureLine = async (text, size, forceDir, font = DEFAULT_FONT) => widthOf(visualLine(text, forceDir).text, size, font);
   return { get, widthOf, drawLine, measureLine };
 }
 
 /** Wrap a paragraph (logical text) to maxWidth; returns array of logical lines. */
-export async function wrapParagraph(text, size, maxWidth, fonts, forceDir) {
+export async function wrapParagraph(text, size, maxWidth, fonts, forceDir, font = DEFAULT_FONT) {
   if (!text.trim()) return [''];
   const words = text.split(/(\s+)/).filter(s => s.length);
   const lines = []; let cur = '';
   for (const w of words) {
     const test = cur + w;
-    if (cur && (await fonts.measureLine(test.trimEnd(), size, forceDir)) > maxWidth && w.trim()) {
+    if (cur && (await fonts.measureLine(test.trimEnd(), size, forceDir, font)) > maxWidth && w.trim()) {
       lines.push(cur.trimEnd()); cur = w.trimStart();
     } else cur = test;
   }

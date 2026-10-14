@@ -2,6 +2,7 @@ import { $, h, mountDrop, download, stripExt, fail, progress, toast, parseRanges
 import { t, onLang } from './i18n.js';
 import { openPdf, closePdf, renderPage, rasterizePdf, PAGE_SIZES } from './pdfcore.js';
 import { makeFontSet, wrapParagraph, baseDirection } from './textengine.js';
+import { resolveFont, fillFontSelect } from './fonts.js';
 
 const PDFLib = window.PDFLib;
 const { PDFDocument, rgb } = PDFLib;
@@ -15,6 +16,7 @@ export function init() {
   mountDrop($('#p2i-drop'), async files => { C.p2i = files[0]; $('#p2i-name').textContent = files[0].name; });
   $('#p2i-go').onclick = pdfToImages;
   // ---- text -> pdf
+  fillFontSelect($('#t2p-font'));
   $('#t2p-go').onclick = textToPdf;
   // ---- compress
   mountDrop($('#cmp-drop'), files => { C.cmp = files[0]; $('#cmp-name').textContent = `${files[0].name} · ${fmtBytes(files[0].size)}`; $('#cmp-result').textContent = ''; });
@@ -91,16 +93,17 @@ async function textToPdf() {
     const doc = await PDFDocument.create();
     const fonts = await makeFontSet(doc, PDFLib, window.fontkit);
     const size = +$('#t2p-size').value || 14, [pw, ph] = PAGE_SIZES[$('#t2p-page').value], margin = 56, lh = size * 1.45;
+    const font = resolveFont($('#t2p-font').value, $('#t2p-bold').checked);
     const forced = $('#t2p-dir').value === 'auto' ? undefined : $('#t2p-dir').value;
     let page = doc.addPage([pw, ph]), y = ph - margin - size;
     for (const para of text.replace(/\r/g, '').split('\n')) {
       const dir = baseDirection(para, forced);
-      for (const line of await wrapParagraph(para, size, pw - margin * 2, fonts, forced)) {
+      for (const line of await wrapParagraph(para, size, pw - margin * 2, fonts, forced, font)) {
         if (y < margin) { page = doc.addPage([pw, ph]); y = ph - margin - size; }
         if (line) {
-          const w = await fonts.measureLine(line, size, forced);
+          const w = await fonts.measureLine(line, size, forced, font);
           const x = dir === 'rtl' ? pw - margin - w : margin;
-          await fonts.drawLine(page, line, { x, y, size, color: rgb(0.08, 0.08, 0.1), forceDir: forced });
+          await fonts.drawLine(page, line, { x, y, size, color: rgb(0.08, 0.08, 0.1), forceDir: forced, font });
         }
         y -= lh;
       }

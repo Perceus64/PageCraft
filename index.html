@@ -8,6 +8,7 @@
   <title>Pagecraft — PDF &amp; Image Studio</title>
   <meta name="description" content="Read, edit, convert, OCR and optimise PDFs and images entirely in your browser. Multi-language, private, no uploads.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b59ff'/%3E%3Cpath d='M9 7h9l5 5v13H9z' fill='%23fff'/%3E%3Cpath d='M18 7v5h5' fill='%23b9c8ff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
   <script src="vendor/pdf-lib.min.js"></script>
   <script src="vendor/fontkit.umd.min.js"></script>
@@ -31,6 +32,7 @@
     <button role="tab" data-tab="images"   data-i18n="tab.images"></button>
   </nav>
   <div class="top-actions">
+    <button id="font-add" class="btn" data-i18n="font.add"></button>
     <label class="sr" for="lang" data-i18n="app.language"></label>
     <select id="lang" aria-label="Language">
       <option value="en">English</option>
@@ -117,6 +119,7 @@
     <div id="edit-ui" hidden>
       <div class="toolbar tools" id="e-tools">
         <button class="btn tool active" data-tool="select" data-i18n="edit.t_select"></button>
+        <button class="btn tool" data-tool="edittext" data-i18n="edit.t_edittext"></button>
         <button class="btn tool" data-tool="text" data-i18n="edit.t_text"></button>
         <button class="btn tool" data-tool="image" data-i18n="edit.t_image"></button>
         <button class="btn tool" data-tool="sign" data-i18n="edit.t_sign"></button>
@@ -128,6 +131,8 @@
         <label class="inl"><span data-i18n="edit.color"></span> <input id="e-color" type="color" value="#d93025"></label>
         <label class="inl"><span data-i18n="edit.size"></span> <input id="e-size" type="number" min="6" max="200" value="18" class="num"></label>
         <label class="inl"><span data-i18n="edit.opacity"></span> <input id="e-opacity" type="range" min="10" max="100" value="100"></label>
+        <label class="inl"><span data-i18n="font.label"></span> <select id="e-font"></select></label>
+        <label class="inl"><input id="e-bold" type="checkbox"> <b data-i18n-title="font.bold">B</b></label>
         <button id="e-del" class="btn danger" data-i18n="edit.delete_obj"></button>
       </div>
       <div class="toolbar">
@@ -150,7 +155,11 @@
               <label class="f"><span data-i18n="edit.angle"></span><input id="w-angle" type="number" value="45"></label>
               <label class="f"><span data-i18n="edit.opacity"></span><input id="w-op" type="number" value="25" min="1" max="100"></label>
             </div>
-            <label class="f"><span data-i18n="edit.color"></span><input id="w-color" type="color" value="#888888"></label>
+            <div class="row3">
+              <label class="f"><span data-i18n="edit.color"></span><input id="w-color" type="color" value="#888888"></label>
+              <label class="f"><span data-i18n="font.label"></span><select id="w-font"></select></label>
+              <label class="chk"><input id="w-bold" type="checkbox" checked> <b>B</b></label>
+            </div>
           </details>
           <details><summary data-i18n="edit.numbers"></summary>
             <label class="chk"><input id="n-on" type="checkbox"> <span data-i18n="edit.numbers_on"></span></label>
@@ -209,6 +218,10 @@
           <label class="f"><span data-i18n="edit.size"></span><input id="t2p-size" type="number" value="14" min="6"></label>
           <label class="f"><span data-i18n="cv.pagesize"></span><select id="t2p-page"><option value="a4">A4</option><option value="letter">Letter</option></select></label>
           <label class="f"><span data-i18n="edit.dir"></span><select id="t2p-dir"><option value="auto" data-i18n="edit.dir_auto"></option><option value="ltr">LTR</option><option value="rtl">RTL</option></select></label>
+        </div>
+        <div class="row3">
+          <label class="f"><span data-i18n="font.label"></span><select id="t2p-font"></select></label>
+          <label class="chk"><input id="t2p-bold" type="checkbox"> <b>B</b></label>
         </div>
         <button id="t2p-go" class="btn primary" data-i18n="cv.make_pdf"></button>
       </article>
@@ -301,6 +314,7 @@
           </details>
           <details><summary data-i18n="img.watermark"></summary>
             <label class="f"><span data-i18n="edit.wm_text"></span><input id="im-wm" data-i18n-ph="edit.wm_ph"></label>
+            <label class="f"><span data-i18n="font.label"></span><select id="im-wmf"></select></label>
             <div class="row3"><label class="f"><span data-i18n="edit.size"></span><input id="im-wms" type="number" value="5" min="1" max="50"></label>
               <label class="f"><span data-i18n="edit.opacity"></span><input id="im-wmo" type="number" value="50" min="5" max="100"></label>
               <label class="f"><span data-i18n="edit.pos"></span><select id="im-wmp"><option value="br" data-i18n="pos.br"></option><option value="bl" data-i18n="pos.bl"></option><option value="c" data-i18n="pos.c"></option><option value="tr" data-i18n="pos.tr"></option><option value="tl" data-i18n="pos.tl"></option></select></label></div>
@@ -331,6 +345,19 @@
   </div>
 </div>
 <input id="e-imgpick" type="file" accept="image/*" hidden>
+<div id="fontdlg" class="dlg" hidden>
+  <div class="dlg-box">
+    <h3 data-i18n="font.title"></h3>
+    <p class="hint" data-i18n="font.hint"></p>
+    <div class="row"><button id="font-upload" class="btn primary" data-i18n="font.upload"></button><button id="font-system" class="btn" data-i18n="font.system" hidden></button></div>
+    <input id="font-q" type="search" data-i18n-ph="font.filter" hidden>
+    <div id="font-syslist" class="results sys" hidden></div>
+    <h3 data-i18n="font.loaded"></h3>
+    <ul id="font-list" class="filelist"></ul>
+    <div class="row"><span class="grow"></span><button id="font-close" class="btn" data-i18n="msg.close"></button></div>
+  </div>
+</div>
+<input id="font-file" type="file" accept=".ttf,.otf,.woff,font/ttf,font/otf,font/woff" multiple hidden>
 <div id="toasts" aria-live="polite"></div>
 <footer class="foot"><span data-i18n="app.footer"></span></footer>
 

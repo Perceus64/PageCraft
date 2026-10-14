@@ -1,8 +1,9 @@
 import { $, h, mountDrop, download, stripExt, fail, progress, toast, canvasToBlob, newZip, fmtBytes, imgExt, tick } from './util.js';
 import { t, onLang } from './i18n.js';
+import { cssFamily, fillFontSelect, preloadFont } from './fonts.js';
 
 const I = { items: [], cur: 0, raf: 0 };
-const DEF = () => ({ rot: 0, fh: false, fv: false, w: null, h: null, pct: 100, ct: 0, cb: 0, cl: 0, cr: 0, aspect: '', br: 0, co: 0, sa: 0, bl: 0, gray: false, sepia: false, invert: false, wm: '', wms: 5, wmo: 50, wmp: 'br' });
+const DEF = () => ({ rot: 0, fh: false, fv: false, w: null, h: null, pct: 100, ct: 0, cb: 0, cl: 0, cr: 0, aspect: '', br: 0, co: 0, sa: 0, bl: 0, gray: false, sepia: false, invert: false, wm: '', wmf: 'sans', wms: 5, wmo: 50, wmp: 'br' });
 let set = DEF();
 
 export function init() {
@@ -18,7 +19,9 @@ export function init() {
   bind('im-aspect', 'aspect', false, () => { if (set.aspect) { set.ct = set.cb = set.cl = set.cr = 0; ['ct', 'cb', 'cl', 'cr'].forEach(k => ($('#im-' + k).value = 0)); } });
   for (const [id, k] of [['im-br', 'br'], ['im-co', 'co'], ['im-sa', 'sa'], ['im-bl', 'bl']]) bind(id, k);
   for (const [id, k] of [['im-gray', 'gray'], ['im-sepia', 'sepia'], ['im-invert', 'invert']]) bind(id, k);
-  bind('im-wm', 'wm', false); bind('im-wms', 'wms'); bind('im-wmo', 'wmo'); bind('im-wmp', 'wmp', false);
+  fillFontSelect($('#im-wmf'));
+  bind('im-wmf', 'wmf', false, () => preloadFont(set.wmf, 700, set.wm).then(schedule));
+  bind('im-wm', 'wm', false, () => preloadFont(set.wmf, 700, set.wm).then(schedule)); bind('im-wms', 'wms'); bind('im-wmo', 'wmo'); bind('im-wmp', 'wmp', false);
   $('#im-rl').onclick = () => { set.rot = (set.rot + 270) % 360; schedule(); };
   $('#im-rr').onclick = () => { set.rot = (set.rot + 90) % 360; schedule(); };
   $('#im-fh').onclick = () => { set.fh = !set.fh; schedule(); };
@@ -32,7 +35,7 @@ export function init() {
 
 function syncInputs() {
   const set2 = (id, v) => { const el = $('#' + id); if (el.type === 'checkbox') el.checked = !!v; else el.value = v ?? ''; };
-  Object.entries({ 'im-w': set.w, 'im-h': set.h, 'im-pct': set.pct, 'im-ct': set.ct, 'im-cb': set.cb, 'im-cl': set.cl, 'im-cr': set.cr, 'im-aspect': set.aspect, 'im-br': set.br, 'im-co': set.co, 'im-sa': set.sa, 'im-bl': set.bl, 'im-gray': set.gray, 'im-sepia': set.sepia, 'im-invert': set.invert, 'im-wm': set.wm, 'im-wms': set.wms, 'im-wmo': set.wmo, 'im-wmp': set.wmp }).forEach(([k, v]) => set2(k, v));
+  Object.entries({ 'im-w': set.w, 'im-h': set.h, 'im-pct': set.pct, 'im-ct': set.ct, 'im-cb': set.cb, 'im-cl': set.cl, 'im-cr': set.cr, 'im-aspect': set.aspect, 'im-br': set.br, 'im-co': set.co, 'im-sa': set.sa, 'im-bl': set.bl, 'im-gray': set.gray, 'im-sepia': set.sepia, 'im-invert': set.invert, 'im-wm': set.wm, 'im-wmf': set.wmf, 'im-wms': set.wms, 'im-wmo': set.wmo, 'im-wmp': set.wmp }).forEach(([k, v]) => set2(k, v));
 }
 
 async function addFiles(files) {
@@ -109,7 +112,7 @@ export function process(bmp, s, maxDim = Infinity) {
   // 5) watermark
   if (s.wm) {
     const fs = Math.max(8, (H * s.wms) / 100), pad = fs * 0.6;
-    b.font = `600 ${fs}px NotoPDF, system-ui, sans-serif`; b.textBaseline = 'alphabetic';
+    b.font = `700 ${fs}px ${cssFamily(s.wmf)}`; b.textBaseline = 'alphabetic';
     const w = b.measureText(s.wm).width;
     const pos = { br: [W - w - pad, H - pad], bl: [pad, H - pad], tr: [W - w - pad, pad + fs], tl: [pad, pad + fs], c: [(W - w) / 2, (H + fs * 0.7) / 2] }[s.wmp];
     b.globalAlpha = s.wmo / 100; b.shadowColor = 'rgba(0,0,0,.6)'; b.shadowBlur = fs * 0.12; b.fillStyle = '#fff';

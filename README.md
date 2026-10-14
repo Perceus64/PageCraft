@@ -11,10 +11,16 @@ UI languages: **English, العربية (RTL), Français, Español**. OCR: **39 
 |---|---|
 | **Read** | Fast viewer (pdf.js) with zoom, selectable text, full-text search with highlights, text extraction → `.txt`, document info |
 | **Organize** | Merge several PDFs, drag-and-drop reorder, rotate, delete, duplicate, insert blank pages, extract selection, split every *N* pages or by ranges (ZIP) |
-| **Edit** | Click-to-place **text** (any supported script, LTR/RTL), **images**, drawn **signature**, rectangles, **highlight**, **white-out**, **redact**; **watermark**, **page numbers**, **metadata**; optional *flatten* to make redactions permanent |
+| **Edit** | **Edit existing text** (click a line, retype), click-to-place **text** with a **font picker** (Sans / Serif / Monospace / Handwriting, bold; any supported script, LTR/RTL), **images**, drawn **signature**, rectangles, **highlight**, **white-out**, **redact**; **watermark**, **page numbers**, **metadata**; optional *flatten* to make redactions permanent |
 | **Convert** | Images → PDF (A4 / Letter / fit-to-image), PDF → PNG/JPG/WebP (ZIP), **Text → PDF in any supported language**, **Compress PDF** (lossless optimise, or shrink by rasterising) |
 | **OCR** | Tesseract (WebAssembly) on images or PDF pages, multi-language at once (e.g. Arabic + English + French), pre-processing, **searchable-PDF output** |
 | **Images** | Batch resize, crop (free / aspect presets), rotate/flip, brightness/contrast/saturation/blur, grayscale/sepia/invert, text watermark (any script), PNG/JPG/WebP, **“max size in KB” auto-tuning**, EXIF/GPS stripped, ZIP export |
+
+## Fonts
+
+* **Built-in families** (regular + bold): Sans, Serif, Monospace, Handwriting — each covering Latin, Latin-Ext, Cyrillic and Greek (Handwriting: no Greek), plus Arabic via Noto Sans Arabic / Noto Naskh Arabic. Missing glyphs fall back to Sans automatically.
+* **Your own fonts:** click **＋ Fonts** to upload `.ttf`, TrueType-flavoured `.otf` or `.woff` files, or (Chrome/Edge) pick an installed system font. They appear in every font menu (editor, watermark, Text → PDF, image watermark). Fonts live in the current tab only and are never uploaded; characters a font lacks fall back to the built-in font.
+* **Not supported:** OpenType fonts with CFF outlines, WOFF2 and `.ttc` collections (pdf-lib cannot embed them correctly, so they are rejected with a message — use the `.ttf` version). CJK fonts are too large to bundle; add one via **＋ Fonts**.
 
 ## Where WebAssembly is used
 
@@ -56,7 +62,7 @@ PDF libraries don't shape Arabic or do bidi on their own. `js/textengine.js` doe
 2. Arabic runs are **shaped to Unicode presentation forms** (initial / medial / final / ligatures such as لا), covering Arabic, Persian (پ چ ژ گ ک ی) and common Urdu letters.
 3. Characters are routed to the right embedded **Noto Sans** subset (Latin, Latin-Ext, Cyrillic, Greek, Arabic).
 
-Limitations: Arabic diacritics (tashkeel) are dropped when *writing* text; CJK/Hebrew/Indic scripts are not embedded for editing/Text→PDF (OCR does support them — reading is unaffected).
+Limitations: Arabic diacritics (tashkeel) are dropped when *writing* text; CJK/Hebrew/Indic scripts need a font added via **＋ Fonts** for editing/Text→PDF (OCR supports them out of the box).
 
 ## Other limitations
 
@@ -73,15 +79,17 @@ index.html            app shell (all tabs)
 css/style.css         light/dark theme, RTL-aware (logical properties)
 js/app.js             tab routing, theme, language switch
 js/i18n.js            UI translations — add a language here + an <option> in index.html
-js/textengine.js      Arabic shaping, bidi, per-script font selection for pdf-lib
+js/textengine.js      Arabic shaping, bidi, per-script/per-family font selection for pdf-lib
+js/fonts.js           font registry: built-in families, uploaded & system fonts, WOFF→TTF
 js/pdfcore.js         pdf.js helpers (open, render, text layer, rasterize)
 js/{read,organize,edit,convert,ocr,images}.js   one module per tab (lazy-loaded)
 vendor/               pdf-lib, fontkit, JSZip, pdf.js (legacy build), Tesseract + WASM cores, Noto fonts
 scripts/vendor.mjs    `npm install && npm run vendor` refreshes vendor/ from node_modules
+scripts/build_fonts.py  regenerates vendor/fonts + css/fonts.css (needs `pip install fonttools brotli`)
 ```
 
-Fonts in `vendor/fonts` are Noto Sans subsets from `@fontsource` (OFL licence). The `.woff` files drive the on-screen editor; matching `.ttf` copies (converted with fontTools) are embedded in exported PDFs, because pdf-lib's subsetter mishandles Arabic composite glyphs.
+Font files in `vendor/fonts` come from `@fontsource` (Noto Sans/Serif/Sans Mono/Naskh Arabic, Caveat; SIL OFL). The `.woff` files drive the on-screen editor; matching `.ttf` copies (converted by `scripts/build_fonts.py`) are embedded in exported PDFs, because pdf-lib's subsetter mishandles Arabic composite glyphs.
 
 ## Licences
 
-Pagecraft code: MIT. Bundled: pdf-lib (MIT), pdf.js (Apache-2.0), Tesseract.js & core (Apache-2.0), JSZip (MIT/GPL), fontkit (MIT), Noto Sans (SIL OFL 1.1).
+Pagecraft code: MIT. Bundled: pdf-lib (MIT), pdf.js (Apache-2.0), Tesseract.js & core (Apache-2.0), JSZip (MIT/GPL), fontkit (MIT), Noto fonts and Caveat (SIL OFL 1.1).

@@ -2,6 +2,7 @@ import { $, $$, h, mountDrop, download, stripExt, fail, progress, toast, hexToRg
 import { t } from './i18n.js';
 import { openPdf, closePdf, renderPage, rasterizePdf } from './pdfcore.js';
 import { makeFontSet } from './textengine.js';
+import { resolveFont, cssFamily, fillFontSelect, preloadFont } from './fonts.js';
 
 const PDFLib = window.PDFLib;
 const { PDFDocument, rgb, degrees } = PDFLib;
@@ -10,7 +11,7 @@ const BASE = 0.988;   // text baseline offset (em) for line-height 1.2 with Noto
 const LH = 1.2;
 
 // objs live in *displayed* page points (top-left origin)
-const E = { doc: null, bytes: null, file: null, n: 1, zoom: 1.25, scale: 1, vp1: [], objs: [], sel: null, tool: 'select', nextId: 1, pending: null, token: 0, task: null };
+const E = { textCache: {}, doc: null, bytes: null, file: null, n: 1, zoom: 1.25, scale: 1, vp1: [], objs: [], sel: null, tool: 'select', nextId: 1, pending: null, token: 0, task: null };
 
 export function init() {
   mountDrop($('#edit-drop'), files => load(files[0]));
@@ -22,6 +23,9 @@ export function init() {
   $('#e-export').onclick = exportPdf;
   for (const id of ['e-color', 'e-size', 'e-opacity']) $('#' + id).addEventListener('input', applyProps);
   $('#e-text').addEventListener('input', () => { const o = sel(); if (o?.type === 'text') { o.text = $('#e-text').value; paint(o); } });
+  fillFontSelect($('#e-font')); fillFontSelect($('#w-font'));
+  const fontChanged = () => { const o = sel(); if (o?.type === 'text') { o.font = $('#e-font').value; o.bold = $('#e-bold').checked; preloadFont(o.font, o.bold ? 700 : 400, o.text); paint(o); } };
+  $('#e-font').addEventListener('change', fontChanged); $('#e-bold').addEventListener('change', fontChanged);
   $('#e-dir').addEventListener('change', () => { const o = sel(); if (o?.type === 'text') { o.dir = $('#e-dir').value; paint(o); } });
   document.addEventListener('keydown', e => {
     if (document.body.dataset.tab !== 'edit' || !E.doc) return;
@@ -41,7 +45,7 @@ async function load(file) {
     closePdf(E.doc);
     E.file = file; E.bytes = new Uint8Array(await file.arrayBuffer());
     E.doc = await openPdf(E.bytes);
-    E.objs = []; E.sel = null; E.n = 1;
+    E.objs = []; E.sel = null; E.n = 1; E.textCache = {};
     E.vp1 = [];
     for (let i = 1; i <= E.doc.numPages; i++) E.vp1.push((await E.doc.getPage(i)).getViewport({ scale: 1 }));
     $('#edit-ui').hidden = false;
@@ -100,6 +104,7 @@ function paint(o) {
     const txt = el.childNodes[0]?.nodeType === 3 ? el.childNodes[0] : null;
     if (!el.isContentEditable) { if (txt) txt.nodeValue = o.text; else el.prepend(document.createTextNode(o.text)); }
     el.style.fontSize = o.size * s + 'px'; el.style.color = o.color; el.style.lineHeight = LH; el.setAttribute('dir', o.dir || 'auto');
+    el.style.fontFamily = cssFamily(o.font); el.style.fontWeight = o.bold ? 700 : 400;
   } else {
     el.style.width = o.w * s + 'px'; el.style.height = o.h * s + 'px';
     if (o.type === 'rect') { el.style.border = `${Math.max(1, 2 * s)}px solid ${o.color}`; }
@@ -114,7 +119,7 @@ function select(id) {
   if (o) {
     if (o.color) $('#e-color').value = o.color;
     $('#e-opacity').value = Math.round(o.opacity * 100);
-    if (o.type === 'text') { $('#e-size').value = Math.round(o.size); $('#e-text').value = o.text; $('#e-dir').value = o.dir || 'auto'; }
+    if (o.type === 'text') { $('#e-size').value = Math.round(o.size); $('#e-text').value = o.text; $('#e-dir').value = o.dir || 'auto'; $('#e-font').value = o.font || 'sans'; $('#e-bold').checked = !!o.bold; }
   }
 }
 
@@ -143,6 +148,7 @@ function setTool(tool) {
   E.tool = tool;
   $$('#e-tools .tool').forEach(b => b.classList.toggle('active', b.dataset.tool === tool));
   $('#e-overlay').className = 'overlay tool-' + tool;
+  if (tool === 'edittext') toast(t('edit.edittext_tip'), 'info', 6500);
   if (tool === 'text') { $('#e-color').value = '#000000'; $('#e-opacity').value = 100; }
   if (tool === 'rect') { $('#e-color').value = '#d93025'; $('#e-opacity').value = 100; }
   if (tool === 'highlight') { $('#e-color').value = '#ffd400'; $('#e-opacity').value = 40; }
@@ -182,9 +188,10 @@ function onOverlayDown(e) {
   const p = pt(e);
   const tool = E.tool;
   if (tool === 'select') return select(null);
+  if (tool === 'edittext') return editExistingText(p);
   if (tool === 'text') {
     const size = +$('#e-size').value || 18;
-    const o = add({ type: 'text', kind: 'text', text: t('edit.default_text'), x: p.x, y: p.y - size * 0.5, size, color: $('#e-color').value, opacity: +$('#e-opacity').value / 100, dir: $('#e-dir').value });
+    const o = add({ type: 'text', kind: 'text', text: t('edit.default_text'), x: p.x, y: p.y - size * 0.5, size, color: $('#e-color').value, opacity: +$('#e-opacity').value / 100, dir: $('#e-dir').value, font: $('#e-font').value, bold: $('#e-bold').checked });
     setTool('select'); $('#e-text').focus(); $('#e-text').select(); return o;
   }
   if (tool === 'image') { E.pending = p; $('#e-imgpick').click(); return; }
@@ -250,18 +257,18 @@ async function exportPdf() {
     const dirOf = d => (d === 'ltr' || d === 'rtl' ? d : undefined);
 
     // draw (multi-line) text at a displayed point, honouring the page's /Rotate
-    const drawText = async (page, vp, text, x, yBase, size, color, opacity, forceDir) => {
+    const drawText = async (page, vp, text, x, yBase, size, color, opacity, forceDir, font) => {
       const lines = String(text).split('\n');
       for (let i = 0; i < lines.length; i++) {
         const [lx, ly] = vp.convertToPdfPoint(x, yBase + i * LH * size);
-        await fonts.drawLine(page, lines[i], { x: lx, y: ly, size, color, opacity, angle: vp.rotation, forceDir });
+        await fonts.drawLine(page, lines[i], { x: lx, y: ly, size, color, opacity, angle: vp.rotation, forceDir, font });
       }
     };
 
     for (const o of E.objs) {
       const page = pages[o.page - 1], vp = E.vp1[o.page - 1];
       if (o.type === 'text') {
-        await drawText(page, vp, o.text, o.x, o.y + BASE * o.size, o.size, col(o.color), o.opacity, dirOf(o.dir));
+        await drawText(page, vp, o.text, o.x, o.y + BASE * o.size, o.size, col(o.color), o.opacity, dirOf(o.dir), resolveFont(o.font, o.bold));
       } else if (o.type === 'image') {
         const img = await embedAnyImage(doc, o.blob);
         const [bx, by] = vp.convertToPdfPoint(o.x, o.y + o.h);
@@ -278,7 +285,8 @@ async function exportPdf() {
     const wm = $('#w-text').value.trim();
     if (wm) {
       const size = +$('#w-size').value || 64, ang = +$('#w-angle').value || 0, op = (+$('#w-op').value || 25) / 100, color = col($('#w-color').value);
-      const w = await fonts.measureLine(wm, size);
+      const wmFont = resolveFont($('#w-font').value, $('#w-bold').checked);
+      const w = await fonts.measureLine(wm, size, undefined, wmFont);
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i], vp = E.vp1[i];
         const cx = vp.width / 2, cy = vp.height / 2;
@@ -286,7 +294,7 @@ async function exportPdf() {
         const sx = cx - Math.cos(a) * w / 2 + Math.sin(a) * size * 0.35;
         const sy = cy + Math.sin(a) * w / 2 + Math.cos(a) * size * 0.35;   // displayed coords are y-down
         const [ux, uy] = vp.convertToPdfPoint(sx, sy);
-        await fonts.drawLine(page, wm, { x: ux, y: uy, size, color, opacity: op, angle: ang + vp.rotation });
+        await fonts.drawLine(page, wm, { x: ux, y: uy, size, color, opacity: op, angle: ang + vp.rotation, font: wmFont });
       }
     }
 
@@ -316,4 +324,70 @@ async function exportPdf() {
     download(out, stripExt(E.file.name) + '-edited.pdf', 'application/pdf');
     toast(t('msg.done'));
   } catch (e) { fail(e); } finally { progress.hide(); }
+}
+
+// ------------------------------------------------------------------ edit existing text
+const ARABIC = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
+
+/** Text runs of the current page in displayed points: {str, x, base, w, size} */
+async function runsOf(pageNum) {
+  if (E.textCache[pageNum]) return E.textCache[pageNum];
+  const page = await E.doc.getPage(pageNum), vp = E.vp1[pageNum - 1];
+  const tc = await page.getTextContent();
+  const runs = [];
+  for (const it of tc.items) {
+    if (!it.str || !it.str.trim()) continue;
+    const [a, b, , d, e, f] = it.transform;
+    const [x, base] = vp.convertToViewportPoint(e, f);
+    const ff = (tc.styles?.[it.fontName]?.fontFamily || '').toLowerCase();
+    runs.push({ font: /mono|courier/.test(ff) ? 'mono' : /serif/.test(ff) && !/sans/.test(ff) ? 'serif' : 'sans', str: it.str, x, base, w: it.width, size: Math.max(4, Math.hypot(a, b) || Math.abs(d)), upright: Math.abs(b) < 0.01 });
+  }
+  return (E.textCache[pageNum] = runs);
+}
+
+function sampleColors(x, y, w, size) {
+  // background = pixel just left of / above the run; text colour = pixel with most contrast inside the run
+  const cv = $('#e-canvas'), k = cv.width / parseFloat(cv.style.width), ctx = cv.getContext('2d', { willReadFrequently: true });
+  const s = E.scale * k, cl = (v, m) => Math.max(0, Math.min(m - 1, Math.round(v)));
+  const px = (X, Y) => ctx.getImageData(cl(X * s, cv.width), cl(Y * s, cv.height), 1, 1).data;
+  const bg = px(x - 2, y - size * 0.4);
+  const img = ctx.getImageData(cl(x * s, cv.width), cl((y - size * 0.8) * s, cv.height), Math.max(1, Math.min(cv.width - 1, Math.round(w * s))), Math.max(1, Math.round(size * s)));
+  let best = 0, fg = [0, 0, 0];
+  for (let i = 0; i < img.data.length; i += 4) {
+    const dist = Math.abs(img.data[i] - bg[0]) + Math.abs(img.data[i + 1] - bg[1]) + Math.abs(img.data[i + 2] - bg[2]);
+    if (dist > best) { best = dist; fg = [img.data[i], img.data[i + 1], img.data[i + 2]]; }
+  }
+  const hex = c => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
+  return { bg: hex([bg[0], bg[1], bg[2]]), fg: best > 60 ? hex(fg) : '#000000' };
+}
+
+async function editExistingText(p) {
+  try {
+    if (E.vp1[E.n - 1].rotation) return toast(t('edit.edittext_rot'), 'warn', 6000);
+    const runs = (await runsOf(E.n)).filter(r => r.upright);
+    // run under the click
+    const hit = runs.find(r => p.x >= r.x - 2 && p.x <= r.x + r.w + 2 && p.y >= r.base - r.size * 1.0 && p.y <= r.base + r.size * 0.35);
+    if (!hit) return toast(t('edit.edittext_none'), 'warn');
+    // grow to the whole line (same baseline, small gaps)
+    const line = runs.filter(r => Math.abs(r.base - hit.base) < hit.size * 0.25).sort((a, b) => a.x - b.x);
+    let i = line.indexOf(hit), lo = i, hi = i;
+    while (lo > 0 && line[lo].x - (line[lo - 1].x + line[lo - 1].w) < hit.size * 0.8) lo--;
+    while (hi < line.length - 1 && line[hi + 1].x - (line[hi].x + line[hi].w) < hit.size * 0.8) hi++;
+    let seg = line.slice(lo, hi + 1);
+    const rtl = seg.some(r => ARABIC.test(r.str));
+    if (rtl) seg = [...seg].reverse();               // pdf.js gives visual order; logical order is right-to-left
+    let text = '';
+    seg.forEach((r, k) => {
+      if (k) { const prev = seg[k - 1], gap = rtl ? prev.x - (r.x + r.w) : r.x - (prev.x + prev.w); if (gap > hit.size * 0.2 && !/\s$/.test(text) && !/^\s/.test(r.str)) text += ' '; }
+      text += r.str;
+    });
+    if (rtl) text = text.normalize('NFKC');           // presentation forms -> plain Arabic letters
+    const x0 = line[lo].x, x1 = line[hi].x + line[hi].w, size = hit.size, base = hit.base;
+    const { bg, fg } = sampleColors(x0, base, x1 - x0, size);
+    add({ type: 'box', kind: 'whiteout', x: x0 - 1.5, y: base - size * 0.95, w: x1 - x0 + 3, h: size * 1.5, color: bg, opacity: 1 });
+    const o = add({ type: 'text', kind: 'text', text, x: x0, y: base - BASE * size, size, color: fg, opacity: 1, dir: 'auto', font: hit.font || 'sans', bold: false });
+    setTool('select');
+    select(o.id);
+    editInPlace(o);
+  } catch (e) { fail(e); }
 }
