@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <!-- Optional: self-host OCR language data (offline/privacy). Put <lang>.traineddata.gz files in ./tessdata and uncomment: -->
+  <!-- <meta name="ocr-lang-path" content="./tessdata"> -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pagecraft — PDF &amp; Image Studio</title>
+  <meta name="description" content="Read, edit, convert, OCR and optimise PDFs and images entirely in your browser. Multi-language, private, no uploads.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232b59ff'/%3E%3Cpath d='M9 7h9l5 5v13H9z' fill='%23fff'/%3E%3Cpath d='M18 7v5h5' fill='%23b9c8ff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="vendor/pdf-lib.min.js"></script>
+  <script src="vendor/fontkit.umd.min.js"></script>
+  <script src="vendor/jszip.min.js"></script>
+  <script src="vendor/tesseract/tesseract.min.js"></script>
+</head>
+<body>
+<a class="skip" href="#main" data-i18n="app.skip">Skip to content</a>
+
+<header class="top">
+  <div class="brand">
+    <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M9 7h9l5 5v13H9z" fill="#fff"/><path d="M18 7v5h5" fill="#b9c8ff"/></svg>
+    <span class="brand-name">Pagecraft</span>
+  </div>
+  <nav id="tabs" role="tablist" aria-label="Tools">
+    <button role="tab" data-tab="read"     data-i18n="tab.read"></button>
+    <button role="tab" data-tab="organize" data-i18n="tab.organize"></button>
+    <button role="tab" data-tab="edit"     data-i18n="tab.edit"></button>
+    <button role="tab" data-tab="convert"  data-i18n="tab.convert"></button>
+    <button role="tab" data-tab="ocr"      data-i18n="tab.ocr"></button>
+    <button role="tab" data-tab="images"   data-i18n="tab.images"></button>
+  </nav>
+  <div class="top-actions">
+    <label class="sr" for="lang" data-i18n="app.language"></label>
+    <select id="lang" aria-label="Language">
+      <option value="en">English</option>
+      <option value="ar">العربية</option>
+      <option value="fr">Français</option>
+      <option value="es">Español</option>
+    </select>
+    <button id="theme" class="icon-btn" data-i18n-title="app.theme" aria-label="Theme"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg></button>
+  </div>
+</header>
+
+<div id="progress" class="progress" hidden>
+  <span id="progress-label"></span><progress id="progress-bar" max="1"></progress>
+</div>
+
+<main id="main">
+  <p class="privacy" data-i18n="app.privacy"></p>
+
+  <!-- ============ READ ============ -->
+  <section id="tab-read" class="panel" role="tabpanel" hidden>
+    <div class="drop-wrap" id="read-drop" data-accept=".pdf,application/pdf" data-hint="drop.pdf"></div>
+    <div id="read-ui" hidden>
+      <div class="toolbar">
+        <button id="r-prev" class="btn" data-i18n="nav.prev"></button>
+        <span class="pager"><input id="r-page" type="number" min="1" value="1" aria-label="Page"> / <span id="r-count">1</span></span>
+        <button id="r-next" class="btn" data-i18n="nav.next"></button>
+        <span class="sep"></span>
+        <button id="r-zout" class="btn icon" aria-label="Zoom out">−</button>
+        <span id="r-zoom" class="muted">100%</span>
+        <button id="r-zin" class="btn icon" aria-label="Zoom in">+</button>
+        <button id="r-fit" class="btn" data-i18n="nav.fit"></button>
+        <span class="sep"></span>
+        <input id="r-q" type="search" data-i18n-ph="read.search" class="grow">
+        <button id="r-search" class="btn" data-i18n="read.find"></button>
+      </div>
+      <div class="split">
+        <div class="stage" id="r-stage"><div class="page-box" id="r-box"><canvas id="r-canvas"></canvas><div id="r-text" class="textLayer"></div></div></div>
+        <aside class="side">
+          <details open><summary data-i18n="read.results"></summary><div id="r-results" class="results"></div></details>
+          <details open><summary data-i18n="read.text"></summary>
+            <div class="row"><button id="r-extract" class="btn" data-i18n="read.extract"></button><button id="r-dltext" class="btn" data-i18n="read.download_txt"></button></div>
+            <textarea id="r-textout" rows="10" dir="auto" readonly></textarea>
+          </details>
+          <details><summary data-i18n="read.info"></summary><dl id="r-info" class="info"></dl></details>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ORGANIZE ============ -->
+  <section id="tab-organize" class="panel" role="tabpanel" hidden>
+    <div class="drop-wrap" id="org-drop" data-accept=".pdf,application/pdf" data-multiple data-hint="drop.pdfs"></div>
+    <div id="org-ui" hidden>
+      <div class="toolbar">
+        <button id="o-all" class="btn" data-i18n="org.select_all"></button>
+        <button id="o-none" class="btn" data-i18n="org.select_none"></button>
+        <input id="o-range" class="narrow" data-i18n-ph="org.range_ph">
+        <button id="o-rangebtn" class="btn" data-i18n="org.select"></button>
+        <span class="sep"></span>
+        <button id="o-rl" class="btn" data-i18n="org.rot_left"></button>
+        <button id="o-rr" class="btn" data-i18n="org.rot_right"></button>
+        <button id="o-dup" class="btn" data-i18n="org.duplicate"></button>
+        <button id="o-blank" class="btn" data-i18n="org.blank"></button>
+        <button id="o-rev" class="btn" data-i18n="org.reverse"></button>
+        <button id="o-del" class="btn danger" data-i18n="org.delete"></button>
+      </div>
+      <div class="toolbar">
+        <button id="o-export" class="btn primary" data-i18n="org.export_all"></button>
+        <button id="o-export-sel" class="btn" data-i18n="org.export_sel"></button>
+        <span class="sep"></span>
+        <label><span data-i18n="org.split_every"></span> <input id="o-every" type="number" min="1" value="1" class="num"></label>
+        <button id="o-split-n" class="btn" data-i18n="org.split_zip"></button>
+        <input id="o-ranges" class="narrow" data-i18n-ph="org.ranges_ph">
+        <button id="o-split-r" class="btn" data-i18n="org.split_ranges"></button>
+        <span id="o-status" class="muted grow"></span>
+      </div>
+      <div id="o-grid" class="thumbs" aria-label="Pages"></div>
+    </div>
+  </section>
+
+  <!-- ============ EDIT ============ -->
+  <section id="tab-edit" class="panel" role="tabpanel" hidden>
+    <div class="drop-wrap" id="edit-drop" data-accept=".pdf,application/pdf" data-hint="drop.pdf"></div>
+    <div id="edit-ui" hidden>
+      <div class="toolbar tools" id="e-tools">
+        <button class="btn tool active" data-tool="select" data-i18n="edit.t_select"></button>
+        <button class="btn tool" data-tool="text" data-i18n="edit.t_text"></button>
+        <button class="btn tool" data-tool="image" data-i18n="edit.t_image"></button>
+        <button class="btn tool" data-tool="sign" data-i18n="edit.t_sign"></button>
+        <button class="btn tool" data-tool="rect" data-i18n="edit.t_rect"></button>
+        <button class="btn tool" data-tool="highlight" data-i18n="edit.t_highlight"></button>
+        <button class="btn tool" data-tool="whiteout" data-i18n="edit.t_whiteout"></button>
+        <button class="btn tool" data-tool="redact" data-i18n="edit.t_redact"></button>
+        <span class="sep"></span>
+        <label class="inl"><span data-i18n="edit.color"></span> <input id="e-color" type="color" value="#d93025"></label>
+        <label class="inl"><span data-i18n="edit.size"></span> <input id="e-size" type="number" min="6" max="200" value="18" class="num"></label>
+        <label class="inl"><span data-i18n="edit.opacity"></span> <input id="e-opacity" type="range" min="10" max="100" value="100"></label>
+        <button id="e-del" class="btn danger" data-i18n="edit.delete_obj"></button>
+      </div>
+      <div class="toolbar">
+        <button id="e-prev" class="btn" data-i18n="nav.prev"></button>
+        <span class="pager"><input id="e-page" type="number" min="1" value="1" aria-label="Page"> / <span id="e-count">1</span></span>
+        <button id="e-next" class="btn" data-i18n="nav.next"></button>
+        <button id="e-zout" class="btn icon" aria-label="Zoom out">−</button><span id="e-zoom" class="muted">100%</span><button id="e-zin" class="btn icon" aria-label="Zoom in">+</button>
+        <span class="sep"></span>
+        <label class="inl"><span data-i18n="edit.text_edit"></span>
+          <input id="e-text" class="grow" data-i18n-ph="edit.text_ph"></label>
+        <select id="e-dir" aria-label="Direction"><option value="auto" data-i18n="edit.dir_auto"></option><option value="ltr">LTR</option><option value="rtl">RTL</option></select>
+      </div>
+      <div class="split">
+        <div class="stage" id="e-stage"><div class="page-box" id="e-box"><canvas id="e-canvas"></canvas><div id="e-overlay" class="overlay"></div></div></div>
+        <aside class="side">
+          <details open><summary data-i18n="edit.watermark"></summary>
+            <label class="f"><span data-i18n="edit.wm_text"></span><input id="w-text" data-i18n-ph="edit.wm_ph"></label>
+            <div class="row3">
+              <label class="f"><span data-i18n="edit.size"></span><input id="w-size" type="number" value="64" min="8"></label>
+              <label class="f"><span data-i18n="edit.angle"></span><input id="w-angle" type="number" value="45"></label>
+              <label class="f"><span data-i18n="edit.opacity"></span><input id="w-op" type="number" value="25" min="1" max="100"></label>
+            </div>
+            <label class="f"><span data-i18n="edit.color"></span><input id="w-color" type="color" value="#888888"></label>
+          </details>
+          <details><summary data-i18n="edit.numbers"></summary>
+            <label class="chk"><input id="n-on" type="checkbox"> <span data-i18n="edit.numbers_on"></span></label>
+            <div class="row3">
+              <label class="f"><span data-i18n="edit.pos"></span><select id="n-pos"><option value="bc" data-i18n="pos.bc"></option><option value="br" data-i18n="pos.br"></option><option value="bl" data-i18n="pos.bl"></option><option value="tc" data-i18n="pos.tc"></option><option value="tr" data-i18n="pos.tr"></option><option value="tl" data-i18n="pos.tl"></option></select></label>
+              <label class="f"><span data-i18n="edit.start"></span><input id="n-start" type="number" value="1"></label>
+              <label class="f"><span data-i18n="edit.size"></span><input id="n-size" type="number" value="11" min="6"></label>
+            </div>
+            <label class="f"><span data-i18n="edit.format"></span><input id="n-fmt" value="{n} / {total}"></label>
+          </details>
+          <details><summary data-i18n="edit.metadata"></summary>
+            <label class="f"><span data-i18n="meta.title"></span><input id="m-title"></label>
+            <label class="f"><span data-i18n="meta.author"></span><input id="m-author"></label>
+            <label class="f"><span data-i18n="meta.subject"></span><input id="m-subject"></label>
+            <label class="f"><span data-i18n="meta.keywords"></span><input id="m-keywords"></label>
+          </details>
+          <label class="chk"><input id="e-flatten" type="checkbox"> <span data-i18n="edit.flatten"></span></label>
+          <p class="hint" data-i18n="edit.redact_hint"></p>
+          <button id="e-export" class="btn primary wide" data-i18n="edit.export"></button>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CONVERT ============ -->
+  <section id="tab-convert" class="panel" role="tabpanel" hidden>
+    <div class="cards">
+      <article class="card">
+        <h2 data-i18n="cv.img2pdf"></h2>
+        <div class="drop-wrap" id="i2p-drop" data-accept="image/*" data-multiple data-hint="drop.images"></div>
+        <ol id="i2p-list" class="filelist"></ol>
+        <div class="row3">
+          <label class="f"><span data-i18n="cv.pagesize"></span><select id="i2p-size"><option value="fit" data-i18n="cv.fit_image"></option><option value="a4">A4</option><option value="letter">Letter</option></select></label>
+          <label class="f"><span data-i18n="cv.margin"></span><input id="i2p-margin" type="number" value="24" min="0"></label>
+          <label class="f"><span data-i18n="cv.orientation"></span><select id="i2p-orient"><option value="auto" data-i18n="cv.auto"></option><option value="p" data-i18n="cv.portrait"></option><option value="l" data-i18n="cv.landscape"></option></select></label>
+        </div>
+        <button id="i2p-go" class="btn primary" data-i18n="cv.make_pdf"></button>
+      </article>
+
+      <article class="card">
+        <h2 data-i18n="cv.pdf2img"></h2>
+        <div class="drop-wrap" id="p2i-drop" data-accept=".pdf,application/pdf" data-hint="drop.pdf"></div>
+        <p id="p2i-name" class="muted"></p>
+        <div class="row3">
+          <label class="f"><span data-i18n="cv.format"></span><select id="p2i-fmt"><option value="image/png">PNG</option><option value="image/jpeg">JPG</option><option value="image/webp">WebP</option></select></label>
+          <label class="f"><span data-i18n="cv.dpi"></span><select id="p2i-dpi"><option>72</option><option>96</option><option selected>150</option><option>200</option><option>300</option></select></label>
+          <label class="f"><span data-i18n="cv.pages"></span><input id="p2i-pages" data-i18n-ph="cv.pages_ph"></label>
+        </div>
+        <button id="p2i-go" class="btn primary" data-i18n="cv.export_images"></button>
+      </article>
+
+      <article class="card">
+        <h2 data-i18n="cv.txt2pdf"></h2>
+        <textarea id="t2p-text" rows="6" data-i18n-ph="cv.txt_ph"></textarea>
+        <div class="row3">
+          <label class="f"><span data-i18n="edit.size"></span><input id="t2p-size" type="number" value="14" min="6"></label>
+          <label class="f"><span data-i18n="cv.pagesize"></span><select id="t2p-page"><option value="a4">A4</option><option value="letter">Letter</option></select></label>
+          <label class="f"><span data-i18n="edit.dir"></span><select id="t2p-dir"><option value="auto" data-i18n="edit.dir_auto"></option><option value="ltr">LTR</option><option value="rtl">RTL</option></select></label>
+        </div>
+        <button id="t2p-go" class="btn primary" data-i18n="cv.make_pdf"></button>
+      </article>
+
+      <article class="card">
+        <h2 data-i18n="cv.compress"></h2>
+        <div class="drop-wrap" id="cmp-drop" data-accept=".pdf,application/pdf" data-hint="drop.pdf"></div>
+        <p id="cmp-name" class="muted"></p>
+        <div class="row3">
+          <label class="f"><span data-i18n="cv.mode"></span><select id="cmp-mode"><option value="lossless" data-i18n="cv.lossless"></option><option value="raster" data-i18n="cv.raster"></option></select></label>
+          <label class="f"><span data-i18n="cv.quality"></span><input id="cmp-q" type="range" min="30" max="95" value="70"></label>
+          <label class="f"><span data-i18n="cv.dpi"></span><select id="cmp-dpi"><option>72</option><option selected>110</option><option>150</option></select></label>
+        </div>
+        <p class="hint" data-i18n="cv.compress_hint"></p>
+        <button id="cmp-go" class="btn primary" data-i18n="cv.compress_go"></button>
+        <p id="cmp-result" class="muted"></p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============ OCR ============ -->
+  <section id="tab-ocr" class="panel" role="tabpanel" hidden>
+    <div class="split ocr">
+      <div>
+        <div class="drop-wrap" id="ocr-drop" data-accept=".pdf,application/pdf,image/*" data-multiple data-hint="drop.ocr"></div>
+        <p id="ocr-files" class="muted"></p>
+        <h3 data-i18n="ocr.languages"></h3>
+        <input id="ocr-lq" type="search" data-i18n-ph="ocr.filter_langs">
+        <div id="ocr-langs" class="langs"></div>
+        <p class="hint" data-i18n="ocr.lang_hint"></p>
+      </div>
+      <div>
+        <div class="row3">
+          <label class="f"><span data-i18n="cv.pages"></span><input id="ocr-pages" data-i18n-ph="cv.pages_ph"></label>
+          <label class="f"><span data-i18n="ocr.scale"></span><select id="ocr-scale"><option value="1.5">1.5×</option><option value="2" selected>2×</option><option value="3">3×</option></select></label>
+          <label class="f"><span data-i18n="ocr.pre"></span><select id="ocr-pre"><option value="none" data-i18n="ocr.pre_none"></option><option value="gray" data-i18n="ocr.pre_gray"></option><option value="bw" data-i18n="ocr.pre_bw"></option></select></label>
+        </div>
+        <label class="chk"><input id="ocr-pdf" type="checkbox" checked> <span data-i18n="ocr.make_pdf"></span></label>
+        <button id="ocr-go" class="btn primary" data-i18n="ocr.run"></button>
+        <button id="ocr-cancel" class="btn" data-i18n="ocr.cancel" hidden></button>
+        <div class="row">
+          <button id="ocr-copy" class="btn" data-i18n="ocr.copy" disabled></button>
+          <button id="ocr-dltxt" class="btn" data-i18n="read.download_txt" disabled></button>
+          <button id="ocr-dlpdf" class="btn" data-i18n="ocr.dl_pdf" disabled></button>
+        </div>
+        <textarea id="ocr-out" rows="18" dir="auto" data-i18n-ph="ocr.out_ph"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ IMAGES ============ -->
+  <section id="tab-images" class="panel" role="tabpanel" hidden>
+    <div class="drop-wrap" id="img-drop" data-accept="image/*" data-multiple data-hint="drop.images"></div>
+    <div id="img-ui" hidden>
+      <div class="split img">
+        <div>
+          <div id="img-strip" class="strip"></div>
+          <div class="stage small"><canvas id="img-canvas"></canvas></div>
+          <p id="img-info" class="muted"></p>
+        </div>
+        <aside class="side">
+          <details open><summary data-i18n="img.resize"></summary>
+            <div class="row3">
+              <label class="f"><span data-i18n="img.width"></span><input id="im-w" type="number" min="1"></label>
+              <label class="f"><span data-i18n="img.height"></span><input id="im-h" type="number" min="1"></label>
+              <label class="f"><span data-i18n="img.percent"></span><input id="im-pct" type="number" min="1" max="500" value="100"></label>
+            </div>
+            <label class="chk"><input id="im-lock" type="checkbox" checked> <span data-i18n="img.lock"></span></label>
+          </details>
+          <details open><summary data-i18n="img.crop"></summary>
+            <label class="f"><span data-i18n="img.aspect"></span><select id="im-aspect"><option value="" data-i18n="img.free"></option><option value="1:1">1:1</option><option value="4:3">4:3</option><option value="3:2">3:2</option><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="3:4">3:4</option></select></label>
+            <div class="row4">
+              <label class="f"><span>↑</span><input id="im-ct" type="number" min="0" value="0"></label>
+              <label class="f"><span>↓</span><input id="im-cb" type="number" min="0" value="0"></label>
+              <label class="f"><span>←</span><input id="im-cl" type="number" min="0" value="0"></label>
+              <label class="f"><span>→</span><input id="im-cr" type="number" min="0" value="0"></label>
+            </div>
+          </details>
+          <details><summary data-i18n="img.transform"></summary>
+            <div class="row"><button id="im-rl" class="btn" data-i18n="org.rot_left"></button><button id="im-rr" class="btn" data-i18n="org.rot_right"></button><button id="im-fh" class="btn" data-i18n="img.flip_h"></button><button id="im-fv" class="btn" data-i18n="img.flip_v"></button></div>
+          </details>
+          <details><summary data-i18n="img.adjust"></summary>
+            <label class="f"><span data-i18n="img.brightness"></span><input id="im-br" type="range" min="-100" max="100" value="0"></label>
+            <label class="f"><span data-i18n="img.contrast"></span><input id="im-co" type="range" min="-100" max="100" value="0"></label>
+            <label class="f"><span data-i18n="img.saturation"></span><input id="im-sa" type="range" min="-100" max="100" value="0"></label>
+            <label class="f"><span data-i18n="img.blur"></span><input id="im-bl" type="range" min="0" max="10" value="0"></label>
+            <div class="row"><label class="chk"><input id="im-gray" type="checkbox"> <span data-i18n="img.gray"></span></label>
+              <label class="chk"><input id="im-sepia" type="checkbox"> <span data-i18n="img.sepia"></span></label>
+              <label class="chk"><input id="im-invert" type="checkbox"> <span data-i18n="img.invert"></span></label></div>
+          </details>
+          <details><summary data-i18n="img.watermark"></summary>
+            <label class="f"><span data-i18n="edit.wm_text"></span><input id="im-wm" data-i18n-ph="edit.wm_ph"></label>
+            <div class="row3"><label class="f"><span data-i18n="edit.size"></span><input id="im-wms" type="number" value="5" min="1" max="50"></label>
+              <label class="f"><span data-i18n="edit.opacity"></span><input id="im-wmo" type="number" value="50" min="5" max="100"></label>
+              <label class="f"><span data-i18n="edit.pos"></span><select id="im-wmp"><option value="br" data-i18n="pos.br"></option><option value="bl" data-i18n="pos.bl"></option><option value="c" data-i18n="pos.c"></option><option value="tr" data-i18n="pos.tr"></option><option value="tl" data-i18n="pos.tl"></option></select></label></div>
+          </details>
+          <details open><summary data-i18n="img.output"></summary>
+            <div class="row3">
+              <label class="f"><span data-i18n="cv.format"></span><select id="im-fmt"><option value="image/jpeg">JPG</option><option value="image/png">PNG</option><option value="image/webp">WebP</option></select></label>
+              <label class="f"><span data-i18n="cv.quality"></span><input id="im-q" type="number" min="10" max="100" value="85"></label>
+              <label class="f"><span data-i18n="img.target_kb"></span><input id="im-kb" type="number" min="0" value="0"></label>
+            </div>
+            <p class="hint" data-i18n="img.target_hint"></p>
+            <div class="row"><button id="im-reset" class="btn" data-i18n="img.reset"></button></div>
+          </details>
+          <button id="im-export" class="btn primary wide" data-i18n="img.export_one"></button>
+          <button id="im-export-all" class="btn wide" data-i18n="img.export_all"></button>
+          <p id="im-result" class="muted"></p>
+        </aside>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="sigdlg" class="dlg" hidden>
+  <div class="dlg-box">
+    <h3 data-i18n="edit.sign_title"></h3>
+    <canvas id="sig-pad" width="480" height="180"></canvas>
+    <div class="row"><button id="sig-clear" class="btn" data-i18n="edit.clear"></button><span class="grow"></span><button id="sig-cancel" class="btn" data-i18n="msg.cancel"></button><button id="sig-ok" class="btn primary" data-i18n="msg.ok"></button></div>
+  </div>
+</div>
+<input id="e-imgpick" type="file" accept="image/*" hidden>
+<div id="toasts" aria-live="polite"></div>
+<footer class="foot"><span data-i18n="app.footer"></span></footer>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
